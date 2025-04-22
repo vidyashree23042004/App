@@ -1,0 +1,400 @@
+
+
+
+
+
+
+
+{% extends "import.html" %}
+{% block content %}
+
+<center>
+<br><h2>PLANT DISEASE DETECTION</h2><br>
+
+    <div>
+        <h3>Live Sensor Data Monitoring</h3>
+        <div style="display: flex; justify-content: center; gap: 20px;">
+            <div class="btn btn-primary" style="width: 150px; height: 100px; font-size: 20px;background-color: #86d37b;">Temperature <br> <span id="temperature">--</span>°C</div>
+            <div class="btn btn-success" style="width: 150px; height: 100px; font-size: 20px;background-color: blue;">Humidity <br> <span id="humidity">--</span>%</div>
+            <div class="btn btn-warning" style="width: 150px; height: 100px; font-size: 20px;background-color: brown;">Soil Moisture <br> <span id="soil_moisture">--</span>%</div>
+            <div class="btn btn-info" style="width: 150px; height: 100px; font-size: 20px;background-color: brown;">Irrigation <br> <span id="irrigation">--</span></div>
+        </div>
+        <br>
+        <!-- 
+        ok va ?
+        lite colors
+        -->
+        <button class="btn btn-info" id="take-photo-btn">Take a Photo</button>
+        <br><br>
+        <video id="camera" width="400" height="300" autoplay style="display:none; border:2px solid #000;"></video>
+        <br><br>
+        <button class="btn btn-primary" id="capture-btn" style="display:none;">Capture Photo</button>
+        <canvas id="canvas" style="display:none;"></canvas>
+    </div>
+    <br><br>
+
+    <form id="upload-file" method="post" enctype="multipart/form-data">
+         <input type="file" name="file" class="btn btn-success" id="imageUpload" accept=".png, .jpg, .jpeg">
+         <br><br>
+         <img id="imagePreview" src="#" class="img-responsive" style="display:none; width:300px; height:300px;"/><br><br>
+         <button type="button" class="btn btn-info btn-lg" id="btn-predict" style="display:none;">Predict!</button>
+    </form>
+
+    <br><br>
+    <img id="capturedImagePreview" src="#" class="img-responsive" style="display:none; width:300px; height:300px;"/>
+    <br><br>
+    <button type="button" class="btn btn-info btn-lg" id="btn-predict-capture" style="display:none;">Predict!</button>
+
+    <div class="loader" style="display:none;"></div>
+    <h3 id="result" style="font-weight: bold; margin-top: 20px;"></h3>
+    <div id="solution"></div>
+    <br><br>
+    <button id="download-pdf" class="btn btn-danger" style="display:none; margin-top: 20px;">Download PDF</button>
+
+    <button id="send-email-btn" class="btn btn-success" style="display:none; margin-top: 20px;">Send Email</button>
+    <input type="email" id="email-input" placeholder="Enter Email" class="form-control" style="width: 300px; margin-top: 10px; display: none;" />
+
+
+</center><br><br>
+
+<style>
+    .solution-card {
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 10px;
+        font-size: 16px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);                                                                                     
+        width: 80%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    
+    .sensor-alert {
+        animation: blink 1s infinite;
+        background-color: #dc3545 !important;
+        color: white !important;
+    }
+    
+    @keyframes blink {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    #irrigation {
+        font-weight: bold;
+    }
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.min.js"></script>
+
+<script>
+    // Sensor data polling
+    function fetchSensorData() {
+        // In your fetchSensorData() function:
+fetch('/get_sensor_data')
+    .then(response => response.json())
+    .then(data => {
+        // Update sensor values
+        if (data.sensor_data) {
+            document.getElementById('temperature').textContent = data.sensor_data.temperature;
+            document.getElementById('humidity').textContent = data.sensor_data.humidity;
+            document.getElementById('soil_moisture').textContent = data.sensor_data.soil_moisture;
+            
+            // Update irrigation prediction
+            if (data.irrigation_prediction !== undefined && data.irrigation_prediction !== null) {
+                const irrigationText = data.irrigation_prediction === 1 ? "NEEDED" : "NOT NEEDED";
+                const irrigationColor = data.irrigation_prediction === 1 ? "red" : "green";
+                document.getElementById('irrigation').textContent = irrigationText;
+                document.getElementById('irrigation').style.color = irrigationColor;
+            }
+            // ... rest of your code
+                    
+                    // Check for alerts and apply styling
+                    const tempElement = document.querySelector('#temperature').parentElement;
+                    const humidityElement = document.querySelector('#humidity').parentElement;
+                    const soilElement = document.querySelector('#soil_moisture').parentElement;
+                    
+                    // Reset all alerts
+                    tempElement.classList.remove('sensor-alert');
+                    humidityElement.classList.remove('sensor-alert');
+                    soilElement.classList.remove('sensor-alert');
+                    
+                    // Apply alerts if any
+                    data.alerts.forEach(alert => {
+                        if (alert.includes('Temperature')) {
+                            tempElement.classList.add('sensor-alert');
+                        } else if (alert.includes('Humidity')) {
+                            humidityElement.classList.add('sensor-alert');
+                        } else if (alert.includes('Soil Moisture')) {
+                            soilElement.classList.add('sensor-alert');
+                        }
+                    });
+                }
+            })
+            .catch(error => console.error('Error fetching sensor data:', error));
+    }
+
+    // Poll sensor data every 3 seconds
+    setInterval(fetchSensorData, 3000);
+    fetchSensorData(); // Initial call
+
+    // Camera functionality
+    const takePhotoBtn = document.getElementById('take-photo-btn');
+    const captureBtn = document.getElementById('capture-btn');
+    const camera = document.getElementById('camera');
+    const canvas = document.getElementById('canvas');
+    const context = canvas.getContext('2d');
+    const capturedImagePreview = document.getElementById('capturedImagePreview');
+    const predictCaptureBtn = document.getElementById('btn-predict-capture');
+
+    takePhotoBtn.addEventListener('click', () => {
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                camera.srcObject = stream;
+                camera.style.display = 'block';
+                captureBtn.style.display = 'block';
+            })
+            .catch(err => {
+                console.error("Error accessing the camera: ", err);
+                alert("Could not access the camera. Please check permissions.");
+            });
+    });
+
+    captureBtn.addEventListener('click', () => {
+        canvas.width = camera.videoWidth;
+        canvas.height = camera.videoHeight;
+        context.drawImage(camera, 0, 0, canvas.width, canvas.height);
+        const dataURL = canvas.toDataURL('image/png');
+
+        capturedImagePreview.src = dataURL;
+        capturedImagePreview.style.display = 'block';
+        predictCaptureBtn.style.display = 'block';
+
+        camera.srcObject.getTracks().forEach(track => track.stop());
+        camera.style.display = 'none';
+        captureBtn.style.display = 'none';
+    });
+
+    let predictionLabel = '';
+
+    // File upload prediction
+    document.getElementById('imageUpload').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('imagePreview').src = e.target.result;
+                document.getElementById('imagePreview').style.display = 'block';
+                document.getElementById('btn-predict').style.display = 'block';
+                document.getElementById('result').innerHTML = '';
+                document.getElementById('solution').innerHTML = '';
+                document.getElementById('download-pdf').style.display = 'none';
+                document.getElementById('send-email-btn').style.display = 'none';
+                document.getElementById('email-input').style.display = 'none';
+            }
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Camera capture prediction
+    predictCaptureBtn.addEventListener('click', function() {
+        const blob = dataURLtoBlob(capturedImagePreview.src);
+        const file = new File([blob], "captured_plant.jpg", { type: "image/jpeg" });
+        
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        makePrediction(formData);
+    });
+
+    // File upload prediction
+    document.getElementById('btn-predict').addEventListener('click', function() {
+        const formData = new FormData(document.getElementById('upload-file'));
+        makePrediction(formData);
+    });
+
+    function makePrediction(formData) {
+        document.querySelector('.loader').style.display = 'block';
+        
+        fetch('/predict', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.querySelector('.loader').style.display = 'none';
+            
+            if (data.error) {
+                document.getElementById('result').innerHTML = 'Error: ' + data.error;
+                return;
+            }
+            
+            predictionLabel = data.prediction;
+            document.getElementById('result').innerHTML = 'Result: ' + predictionLabel;
+            
+            // Format solutions with better styling
+            const solutions = data.solution.split('\n').filter(sol => sol.trim() !== '');
+            let solutionHtml = '<div class="solution-card">';
+            
+            solutions.forEach((sol, index) => {
+                if (sol.trim() !== '') {
+                    solutionHtml += `<p><strong>${index + 1}.</strong> ${sol.trim()}</p>`;
+                }
+            });
+            
+            solutionHtml += '</div>';
+            document.getElementById('solution').innerHTML = solutionHtml;
+            
+            // Hide predict buttons
+            document.getElementById('btn-predict').style.display = 'none';
+            document.getElementById('btn-predict-capture').style.display = 'none';
+
+            // Get current sensor values
+            const temperature = document.getElementById('temperature').innerText;
+            const humidity = document.getElementById('humidity').innerText;
+            const soilMoisture = document.getElementById('soil_moisture').innerText;
+            const irrigation = document.getElementById('irrigation').innerText;
+
+            // Automatically send email to predefined address
+            fetch('/auto_email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prediction: data.prediction,
+                    solution: solutionHtml,
+                    temperature: temperature,
+                    humidity: humidity,
+                    soil_moisture: soilMoisture,
+                    irrigation: irrigation
+                })
+            })
+            .then(response => response.json())
+            .then(res => console.log(res.message))
+            .catch(err => console.error('Auto email failed:', err));
+            
+            // Show PDF and Email buttons
+            document.getElementById('download-pdf').style.display = 'block';
+            document.getElementById('send-email-btn').style.display = 'inline-block';
+            document.getElementById('email-input').style.display = 'block';
+        })
+        .catch(error => {
+            document.querySelector('.loader').style.display = 'none';
+            console.error('Error:', error);
+            document.getElementById('result').innerHTML = 'Error: ' + error.message;
+        });
+    }
+
+    // Helper function to convert data URL to blob
+    function dataURLtoBlob(dataURL) {
+        const arr = dataURL.split(',');
+        const mime = arr[0].match(/:(.*?);/)[1];
+        const bstr = atob(arr[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+            u8arr[n] = bstr.charCodeAt(n);
+        }
+        return new Blob([u8arr], { type: mime });
+    }
+
+    // PDF Download
+    document.getElementById('download-pdf').addEventListener('click', function() {
+        const temperature = document.getElementById('temperature').innerText;
+        const humidity = document.getElementById('humidity').innerText;
+        const soilMoisture = document.getElementById('soil_moisture').innerText;
+        const irrigation = document.getElementById('irrigation').innerText;
+        
+        const imageSrc = document.getElementById('imagePreview').style.display !== 'none' ? 
+            document.getElementById('imagePreview').src : 
+            document.getElementById('capturedImagePreview').src;
+
+        const pdfContent = `
+            <div style="padding: 20px; font-family: Arial;">
+                <center>
+                    <h1 style="color: #28a745;">Plant Disease Report</h1>
+                    <hr style="border-top: 2px solid #28a745; width: 80%;">
+                    <img src="${imageSrc}" style="width: 300px; border: 1px solid #ddd; border-radius: 4px; padding: 5px;"/>
+                    <h2 style="color: #333;">${predictionLabel}</h2>
+                    <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; width: 80%; margin: 20px auto;">
+                        <h3 style="color: #17a2b8;">Environmental Conditions</h3>
+                        <p><strong>Temperature:</strong> ${temperature}°C</p>
+                        <p><strong>Humidity:</strong> ${humidity}%</p>
+                        <p><strong>Soil Moisture:</strong> ${soilMoisture}%</p>
+                        <p><strong>Irrigation Recommendation:</strong> <span style="color: ${irrigation === 'NEEDED' ? 'red' : 'green'}; font-weight: bold;">${irrigation}</span></p>
+                    </div>
+                    <div style="background-color: #e9ecef; padding: 15px; border-radius: 5px; width: 80%; margin: 20px auto;">
+                        <h3 style="color: #17a2b8;">Recommended Solutions</h3>
+                        ${document.getElementById('solution').innerHTML}
+                    </div>
+                    <p style="font-size: 12px; color: #6c757d;">Report generated on ${new Date().toLocaleString()}</p>
+                </center>
+            </div>
+        `;
+
+        const element = document.createElement('div');
+        element.innerHTML = pdfContent;
+
+        const opt = {
+            margin: 10,
+            filename: 'Plant_Disease_Report.pdf',
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2 },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        html2pdf().set(opt).from(element).save();
+    });
+
+    // Email sending
+    document.getElementById('send-email-btn').addEventListener('click', function () {
+        const email = document.getElementById('email-input').value;
+        if (!email || !email.includes('@')) {
+            alert('Please enter a valid email address');
+            return;
+        }
+
+        const temperature = document.getElementById('temperature').innerText;
+        const humidity = document.getElementById('humidity').innerText;
+        const soilMoisture = document.getElementById('soil_moisture').innerText;
+        const irrigation = document.getElementById('irrigation').innerText;
+        
+        const imageSrc = document.getElementById('imagePreview').style.display !== 'none' ? 
+            document.getElementById('imagePreview').src : 
+            document.getElementById('capturedImagePreview').src;
+
+        document.querySelector('.loader').style.display = 'block';
+        
+        fetch('/send_email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                email: email,
+                prediction: predictionLabel,
+                solution: document.getElementById('solution').innerHTML,
+                temperature: temperature,
+                humidity: humidity,
+                soil_moisture: soilMoisture,
+                irrigation: irrigation
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.querySelector('.loader').style.display = 'none';
+            if (data.error) {
+                alert('Error: ' + data.error);
+            } else {
+                alert(data.message || 'Email sent successfully!');
+            }
+        })
+        .catch(error => {
+            document.querySelector('.loader').style.display = 'none';
+            console.error('Error sending email:', error);
+            alert('Failed to send email. Please try again.');
+        });
+    });
+</script>
+
+{% endblock %}

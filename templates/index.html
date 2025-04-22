@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Plant Disease Detection</title>
+</head>
+
+
+<body>
+    <h1>🌿 Plant Disease Detection</h1>
+    <video id="video" width="400" autoplay></video><br>
+    <button onclick="capture()">📷 Capture</button>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <p id="result"></p>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+
+        // Access webcam
+        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+            video.srcObject = stream;
+        });
+
+        function capture() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob(blob => {
+                const formData = new FormData();
+                formData.append('image', blob, 'captured.jpg');
+
+                fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('result').innerHTML =
+                        `🔍 Predicted: <b>${data.class}</b><br>🧠 Confidence: ${data.confidence}`;
+                });
+            }, 'image/jpeg');
+        }
+    </script>
+</body>
+</html>
